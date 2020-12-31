@@ -63,6 +63,20 @@ LA_cases_obese <- read_csv(here::here("data", "child_obesity_data", "LA_cases_ob
 GM_excessweight_rate = (sum(LA_cases_excessweight$numerator)/sum(LA_cases_excessweight$denominator)) *100
 GM_obese_rate = (sum(LA_cases_obese$numerator)/sum(LA_cases_obese$denominator)) *100
 
-GM_joined_cleaned_SIR <- GM_joined_cleaned %>%
+joined <- GM_joined_cleaned %>%
   mutate(sir_year6_excessweight = year6_excessweight_rate/GM_excessweight_rate) %>%
-  mutate(sir_year6_obese = year6_obese_rate/GM_obese_rate) 
+  mutate(sir_year6_obese = year6_obese_rate/GM_obese_rate) %>%
+  mutate(log_poverty_ahc_rate = log(poverty_ahc_rate))
+
+qtm(joined, fill = "year6_obese_rate")
+plot(joined$log_poverty_ahc_rate, joined$year6_obese_rate)
+
+Regressiondata<- joined%>%
+  dplyr::select(year6_obese_rate, 
+                log_poverty_ahc_rate)
+
+model1 <- Regressiondata %>%
+  lm(year6_obese_rate ~
+       log_poverty_ahc_rate,
+     data=.)
+summary(model1)
