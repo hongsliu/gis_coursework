@@ -6,6 +6,8 @@ library(here)
 library(janitor)
 library(spdep)
 library(RColorBrewer)
+
+#data loading and cleaning
 GM <- st_read(here::here("GM", "GM.shp")) %>%
   st_set_crs(27700)
 
@@ -39,25 +41,13 @@ GM_joined_cleaned <- GM_joined %>% select(-one_of(drop.cols))
 
 rm(Obesity, Poverty)
 
-joined <- GM_joined_cleaned %>%
-  mutate(log_poverty_ahc_rate = log(poverty_ahc_rate))
-
 qtm(joined, fill = "year6_obese_rate")
-plot(joined$log_poverty_ahc_rate, joined$year6_obese_rate)
-
-Regressiondata<- joined%>%
-  dplyr::select(year6_obese_rate, 
-                log_poverty_ahc_rate)
-
-model1 <- Regressiondata %>%
-  lm(year6_obese_rate ~
-       log_poverty_ahc_rate,
-     data=.)
-summary(model1)
 
 joined_f <- joined %>%
   drop_na()
+joined_na <- joined[is.na(joined$year6_obese_rate),]
 
+#spatial correlation
 coordsW <- joined_f%>%
   st_centroid()%>%
   st_geometry()
@@ -104,17 +94,25 @@ joined_f <- joined_f %>%
   mutate(obese_rate_I = as.numeric(I_MSOA_Local_obese$Ii))%>%
   mutate(obese_rate_Iz =as.numeric(I_MSOA_Local_obese$Z.Ii))
 
+joined <- joined_f %>%
+  select(msoa11cd, 
+         obese_rate_I,
+         obese_rate_Iz) %>%
+  st_drop_geometry()%>%
+  left_join(joined,.,by = 'msoa11cd' )
 
 breaks1<-c(-1000,-2.58,-1.96,-1.65,1.65,1.96,2.58,1000)
 MoranColours<- rev(brewer.pal(8, "RdGy"))
 
 tmap_mode("view")
-tm_shape(joined_f) +
+tm_shape(joined) +
   tm_polygons("obese_rate_Iz",
               style="fixed",
               breaks=breaks1,
               palette=MoranColours,
               midpoint=NA,
+              colorNA = "white", 
+              textNA = "No data",
               title="Local Moran's I, year6_obese_rate in GM")
 
 Gi_MSOA_local_obese <- joined_f %>%
@@ -125,13 +123,37 @@ Gi_MSOA_local_obese <- joined_f %>%
 joined_f <- joined_f%>%
   mutate(obese_rate_G = as.numeric(Gi_MSOA_local_obese))
 
+
 GIColours<- rev(brewer.pal(8, "RdBu"))
 
-tm_shape(joined_f) +
+joined <- joined_f %>%
+  select(msoa11cd, 
+         obese_rate_G) %>%
+  st_drop_geometry()%>%
+  left_join(joined,.,by = 'msoa11cd' )
+
+tm_shape(joined) +
   tm_polygons("obese_rate_G",
               style="fixed",
               breaks=breaks1,
               palette=GIColours,
+              colorNA = "white", 
+              textNA = "No data",
               midpoint=NA,
               title="Gi*, year6_obese_rate in GM")
 
+joined <- GM_joined_cleaned %>%
+  mutate(log_poverty_ahc_rate = log(poverty_ahc_rate))
+
+
+plot(joined$log_poverty_ahc_rate, joined$year6_obese_rate)
+
+Regressiondata<- joined%>%
+  dplyr::select(year6_obese_rate, 
+                log_poverty_ahc_rate)
+
+model1 <- Regressiondata %>%
+  lm(year6_obese_rate ~
+       log_poverty_ahc_rate,
+     data=.)
+summary(model1)
