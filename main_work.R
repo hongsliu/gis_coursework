@@ -6,6 +6,10 @@ library(here)
 library(janitor)
 library(spdep)
 library(RColorBrewer)
+library(ggplot2)
+library(broom)
+library(corrr)
+library(regclass)
 
 #data loading and cleaning
 GM <- st_read(here::here("GM", "GM.shp")) %>%
@@ -21,6 +25,16 @@ Poverty <- read_csv(here::here("data", "poverty_data", "households_in_poverty_14
   clean_names() %>%
   mutate(across(.cols = 5:6, as.numeric))
 
+Income <- read_csv(here::here("data", "poverty_data", "annual_income.csv"),
+                    na = c("NA", "n/a")) %>% 
+  clean_names() %>%
+  mutate(across(.cols = 2, as.numeric))
+
+Active_life <- read_csv(here::here("data", "active_life_data", "active_life.csv"),
+                    na = c("NA", "n/a")) %>% 
+  clean_names() %>%
+  mutate(across(.cols = 2:3, as.numeric))
+
 GM_joined <- GM %>%
   left_join(.,
             Obesity,
@@ -31,15 +45,26 @@ GM_joined <- GM_joined %>%
             Poverty,
             by= c("msoa11cd" = "msoa_code"))
 
+GM_joined <- Income %>%
+  select(msoa_code, 
+         total_annual_income) %>%
+  left_join(GM_joined,.,by = c("msoa11cd" = "msoa_code") )
+
+GM_joined <- Active_life %>%
+  select(msoa11, 
+         pr_inactive,
+         pr_active) %>%
+  left_join(GM_joined,.,by = c("msoa11cd" = "msoa11") )
+
 drop.cols <- c('msoa11nmw',
                'msoa_name.x',
                'msoa_name.y',
                'la_code.y',
                'la_name.y')
 
-GM_joined_cleaned <- GM_joined %>% select(-one_of(drop.cols))
+joined <- GM_joined %>% select(-one_of(drop.cols))
 
-rm(Obesity, Poverty)
+rm(Obesity, Poverty, Income, Active_life)
 
 qtm(joined, fill = "year6_obese_rate")
 
@@ -47,7 +72,7 @@ joined_f <- joined %>%
   drop_na()
 joined_na <- joined[is.na(joined$year6_obese_rate),]
 
-#spatial correlation
+#spatial autocorrelation
 coordsW <- joined_f%>%
   st_centroid()%>%
   st_geometry()
@@ -142,11 +167,20 @@ tm_shape(joined) +
               midpoint=NA,
               title="Gi*, year6_obese_rate in GM")
 
-joined <- GM_joined_cleaned %>%
+qtm(joined, fill='year6_obese_rate')
+
+
+
+joined <- joined %>%
   mutate(log_poverty_ahc_rate = log(poverty_ahc_rate))
 
+plot(joined$poverty_ahc_rate, joined$year6_obese_rate)
 
-plot(joined$log_poverty_ahc_rate, joined$year6_obese_rate)
+q <- qplot(x = `log_poverty_ahc_rate`, 
+           y = `year6_obese_rate`, 
+           data=joined)
+
+q + stat_smooth(method="lm", se=FALSE, size=1)
 
 Regressiondata<- joined%>%
   dplyr::select(year6_obese_rate, 
@@ -156,4 +190,76 @@ model1 <- Regressiondata %>%
   lm(year6_obese_rate ~
        log_poverty_ahc_rate,
      data=.)
-summary(model1)
+glance(model1)
+
+q2 <- qplot(x = `total_annual_income`, 
+           y = `year6_obese_rate`, 
+           data=joined)
+
+q2 + stat_smooth(method="lm", se=FALSE, size=1)
+
+Regressiondata2<- joined%>%
+  dplyr::select(year6_obese_rate, 
+                total_annual_income)
+
+model2 <- Regressiondata2 %>%
+  lm(year6_obese_rate ~
+       total_annual_income,
+     data=.)
+glance(model2)
+
+q3 <- qplot(x = `pr_inactive`, 
+            y = `year6_obese_rate`, 
+            data=joined)
+
+q3 + stat_smooth(method="lm", se=FALSE, size=1) +
+  geom_jitter()
+
+Regressiondata3<- joined%>%
+  dplyr::select(year6_obese_rate, 
+                pr_inactive)
+
+model3 <- Regressiondata3 %>%
+  lm(year6_obese_rate ~
+       pr_inactive,
+     data=.)
+glance(model3)
+
+
+MRegressiondata<- joined%>%
+  dplyr::select(year6_obese_rate, 
+                poverty_ahc_rate,
+                total_annual_income)
+
+model4 <- MRegressiondata %>%
+  lm(year6_obese_rate ~
+       total_annual_income + poverty_ahc_rate,
+     data=.)
+glance(model4)
+
+MRegressiondata <- MRegressiondata %>% drop_na()
+
+model_data4 <- model4 %>%
+  augment(., MRegressiondata)
+
+joined_f <- joined_f %>%
+  mutate(model4resids = residuals(model4))
+
+joined <- joined_f %>%
+  select(msoa11cd, 
+         model4resids) %>%
+  st_drop_geometry()%>%
+  left_join(joined,.,by = 'msoa11cd' )
+
+Correlation <- joined %>%
+  st_drop_geometry()%>%
+  dplyr::select(year6_obese_rate,
+                poverty_ahc_rate,
+                total_annual_income) %>%
+  correlate() %>%
+  focus(-year6_obese_rate, mirror = TRUE) 
+
+rplot(Correlation)
+
+VIF(model4)
+glance(model4)
