@@ -10,6 +10,7 @@ library(ggplot2)
 library(broom)
 library(corrr)
 library(regclass)
+library(car)
 
 #data loading and cleaning
 GM <- st_read(here::here("GM", "GM.shp")) %>%
@@ -167,30 +168,36 @@ tm_shape(joined) +
               midpoint=NA,
               title="Gi*, year6_obese_rate in GM")
 
-qtm(joined, fill='year6_obese_rate')
 
+#check variables for regression
+ggplot(joined, aes(x=year6_obese_rate)) + 
+  geom_histogram()
 
+ggplot(joined, aes(x=total_annual_income)) + 
+  geom_histogram()
+
+ggplot(joined, aes(x=pr_inactive)) + 
+  geom_histogram()
+
+ggplot(joined, aes(x=poverty_ahc_rate)) + 
+  geom_histogram()
+
+symbox(~poverty_ahc_rate, 
+       joined, 
+       na.rm=T,
+       powers=seq(-3,3,by=.5))
 
 joined <- joined %>%
   mutate(log_poverty_ahc_rate = log(poverty_ahc_rate))
 
-plot(joined$poverty_ahc_rate, joined$year6_obese_rate)
+ggplot(joined, aes(x=log_poverty_ahc_rate)) + 
+         geom_histogram()
 
-q <- qplot(x = `log_poverty_ahc_rate`, 
+q1 <- qplot(x = `log_poverty_ahc_rate`, 
            y = `year6_obese_rate`, 
            data=joined)
 
-q + stat_smooth(method="lm", se=FALSE, size=1)
-
-Regressiondata<- joined%>%
-  dplyr::select(year6_obese_rate, 
-                log_poverty_ahc_rate)
-
-model1 <- Regressiondata %>%
-  lm(year6_obese_rate ~
-       log_poverty_ahc_rate,
-     data=.)
-glance(model1)
+q1 + stat_smooth(method="lm", se=FALSE, size=1)
 
 q2 <- qplot(x = `total_annual_income`, 
            y = `year6_obese_rate`, 
@@ -198,68 +205,115 @@ q2 <- qplot(x = `total_annual_income`,
 
 q2 + stat_smooth(method="lm", se=FALSE, size=1)
 
-Regressiondata2<- joined%>%
-  dplyr::select(year6_obese_rate, 
-                total_annual_income)
-
-model2 <- Regressiondata2 %>%
-  lm(year6_obese_rate ~
-       total_annual_income,
-     data=.)
-glance(model2)
-
 q3 <- qplot(x = `pr_inactive`, 
-            y = `year6_obese_rate`, 
-            data=joined)
+           y = `year6_obese_rate`, 
+           data=joined)
 
-q3 + stat_smooth(method="lm", se=FALSE, size=1) +
+q3 + stat_smooth(method="lm", se=FALSE, size=1)+
   geom_jitter()
-
-Regressiondata3<- joined%>%
-  dplyr::select(year6_obese_rate, 
-                pr_inactive)
-
-model3 <- Regressiondata3 %>%
-  lm(year6_obese_rate ~
-       pr_inactive,
-     data=.)
-glance(model3)
-
-
-MRegressiondata<- joined%>%
-  dplyr::select(year6_obese_rate, 
-                poverty_ahc_rate,
-                total_annual_income)
-
-model4 <- MRegressiondata %>%
-  lm(year6_obese_rate ~
-       total_annual_income + poverty_ahc_rate,
-     data=.)
-glance(model4)
-
-MRegressiondata <- MRegressiondata %>% drop_na()
-
-model_data4 <- model4 %>%
-  augment(., MRegressiondata)
-
-joined_f <- joined_f %>%
-  mutate(model4resids = residuals(model4))
-
-joined <- joined_f %>%
-  select(msoa11cd, 
-         model4resids) %>%
-  st_drop_geometry()%>%
-  left_join(joined,.,by = 'msoa11cd' )
 
 Correlation <- joined %>%
   st_drop_geometry()%>%
   dplyr::select(year6_obese_rate,
-                poverty_ahc_rate,
-                total_annual_income) %>%
+                log_poverty_ahc_rate,
+                total_annual_income,
+                pr_inactive) %>%
   correlate() %>%
   focus(-year6_obese_rate, mirror = TRUE) 
 
 rplot(Correlation)
 
-VIF(model4)
-glance(model4)
+#modelling
+Regressiondata<- joined%>%
+  dplyr::select(year6_obese_rate, 
+                log_poverty_ahc_rate,
+                total_annual_income)
+
+model1 <- Regressiondata %>%
+  lm(year6_obese_rate ~
+       log_poverty_ahc_rate,
+     data=.)
+glance(model1)
+
+model2 <- Regressiondata %>%
+  lm(year6_obese_rate ~
+       total_annual_income,
+     data=.)
+glance(model2)
+
+model3 <- Regressiondata %>%
+  lm(year6_obese_rate ~
+       total_annual_income + log_poverty_ahc_rate,
+     data=.)
+glance(model3)
+
+Regressiondata <- Regressiondata %>% drop_na()
+
+model_data3 <- model3 %>%
+  augment(., Regressiondata)
+
+joined_f <- joined_f %>%
+  mutate(model3resids = residuals(model3))
+
+joined <- joined_f %>%
+  select(msoa11cd, 
+         model3resids) %>%
+  st_drop_geometry()%>%
+  left_join(joined,.,by = 'msoa11cd' )
+
+#check assumptions
+VIF(model3)
+
+model_data3%>%
+  dplyr::select(.resid)%>%
+  pull()%>%
+  qplot()+ 
+  geom_histogram()+
+  stat_bin(bins=20)
+
+par(mfrow=c(2,2))
+plot(model3)
+
+#autocorrelation of residuals
+DW <- durbinWatsonTest(model3)
+tidy(DW)
+
+tmap_mode("view")
+
+tm_shape(joined) +
+  tm_polygons("model3resids",
+              palette = "RdYlBu")
+
+joined_r <- joined%>%
+  drop_na()
+knn_MSOA <-coordsW %>%
+  knearneigh(., k=4)
+MSOA_knn <- knn_MSOA %>%
+  knn2nb()
+
+par(mfrow=c(1,2))
+plot(MSOA_knn, st_geometry(coordsW), col="blue")
+plot(MSOA_nb, st_geometry(coordsW), col="red")
+
+MSOA.queens_weight <- MSOA_nb %>%
+  nb2listw(., style="C")
+
+MSOA.knn_4_weight <- MSOA_knn %>%
+  nb2listw(., style="C")
+
+Queen <- joined_r %>%
+  st_drop_geometry()%>%
+  dplyr::select(model3resids)%>%
+  pull()%>%
+  moran.test(., MSOA.queens_weight)%>%
+  tidy()
+
+Nearest_neighbour <- joined_r %>%
+  st_drop_geometry()%>%
+  dplyr::select(model3resids)%>%
+  pull()%>%
+  moran.test(., MSOA.knn_4_weight)%>%
+  tidy()
+
+Queen
+Nearest_neighbour
