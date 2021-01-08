@@ -11,6 +11,7 @@ library(broom)
 library(corrr)
 library(regclass)
 library(car)
+library(spgwr)
 
 #data loading and cleaning
 GM <- st_read(here::here("GM", "GM.shp")) %>%
@@ -36,6 +37,21 @@ Active_life <- read_csv(here::here("data", "active_life_data", "active_life.csv"
   clean_names() %>%
   mutate(across(.cols = 2:3, as.numeric))
 
+Houseprice <- read_csv(here::here("data", "poverty_data", "median_house_price_18.csv"),
+                        na = c("NA", "n/a")) %>% 
+  clean_names() %>%
+  mutate(across(.cols = 2, as.numeric))
+
+Population <- read_csv(here::here("data", "population_data", "population.csv"),
+                       na = c("NA", "n/a")) %>% 
+  clean_names() %>%
+  mutate(across(.cols = 2, as.numeric))
+
+Education <-  read_csv(here::here("data", "education_data", "level_4_qualifications_and_above.csv"),
+                       na = c("NA", "n/a")) %>% 
+  clean_names() %>%
+  mutate(across(.cols = 2, as.numeric))
+
 GM_joined <- GM %>%
   left_join(.,
             Obesity,
@@ -57,6 +73,21 @@ GM_joined <- Active_life %>%
          pr_active) %>%
   left_join(GM_joined,.,by = c("msoa11cd" = "msoa11") )
 
+GM_joined <- GM_joined %>%
+  left_join(.,
+            Houseprice,
+            by= c("msoa11cd" = "msoa_code"))
+
+GM_joined <- GM_joined %>%
+  left_join(.,
+            Education,
+            by= c("msoa11cd" = "geography_code"))
+
+GM_joined <- GM_joined %>%
+  left_join(.,
+            Population,
+            by= c("msoa11cd" = "area_codes"))
+
 drop.cols <- c('msoa11nmw',
                'msoa_name.x',
                'msoa_name.y',
@@ -65,9 +96,14 @@ drop.cols <- c('msoa11nmw',
 
 joined <- GM_joined %>% select(-one_of(drop.cols))
 
-rm(Obesity, Poverty, Income, Active_life)
+rm(Obesity, Poverty, Income, Active_life, Population, Education, Houseprice)
 
-qtm(joined, fill = "year6_obese_rate")
+joined$area <- st_area(joined)
+joined <- joined %>%
+  mutate(population_density = as.numeric(population/(area/1000000)))%>%
+  mutate(pr_higher_education = level_4_qualifications_and_above/population)
+
+qtm(joined, fill='pr_higher_education')
 
 joined_f <- joined %>%
   drop_na()
@@ -182,18 +218,36 @@ ggplot(joined, aes(x=pr_inactive)) +
 ggplot(joined, aes(x=poverty_ahc_rate)) + 
   geom_histogram()
 
-symbox(~poverty_ahc_rate, 
+symbox(~pr_poverty_ahc_rate, 
        joined, 
        na.rm=T,
        powers=seq(-3,3,by=.5))
 
-joined <- joined %>%
+ggplot(joined, aes(x=log(poverty_ahc_rate))) + 
+  geom_histogram()
+
+ggplot(joined, aes(x=median_house_price_2018)) + 
+  geom_histogram()
+
+ggplot(joined, aes(x=population_density)) + 
+  geom_histogram()
+
+ggplot(joined, aes(x=pr_higher_education)) + 
+  geom_histogram()
+
+symbox(~pr_higher_education, 
+       joined, 
+       na.rm=T,
+       powers=seq(-3,3,by=.5))
+
+ggplot(joined, aes(x=log(pr_higher_education))) + 
+  geom_histogram()
+
+joined <- joined%>%
+  mutate(log_pr_higher_education = log(pr_higher_education))%>%
   mutate(log_poverty_ahc_rate = log(poverty_ahc_rate))
 
-ggplot(joined, aes(x=log_poverty_ahc_rate)) + 
-         geom_histogram()
-
-q1 <- qplot(x = `log_poverty_ahc_rate`, 
+q1 <- qplot(x = `median_house_price_2018`, 
            y = `year6_obese_rate`, 
            data=joined)
 
@@ -212,26 +266,62 @@ q3 <- qplot(x = `pr_inactive`,
 q3 + stat_smooth(method="lm", se=FALSE, size=1)+
   geom_jitter()
 
+q4 <- qplot(x = `population_density`, 
+            y = `year6_obese_rate`, 
+            data=joined)
+
+q4 + stat_smooth(method="lm", se=FALSE, size=1)
+
+q5 <- qplot(x = `pr_higher_education`, 
+            y = `year6_obese_rate`, 
+            data=joined)
+
+q5 + stat_smooth(method="lm", se=FALSE, size=1)
+
+
 Correlation <- joined %>%
   st_drop_geometry()%>%
   dplyr::select(year6_obese_rate,
-                log_poverty_ahc_rate,
                 total_annual_income,
-                pr_inactive) %>%
+                median_house_price_2018,
+                population_density,
+                log_pr_higher_education,
+                poverty_ahc_rate
+                ) %>%
   correlate() %>%
   focus(-year6_obese_rate, mirror = TRUE) 
 
 rplot(Correlation)
 
+Correlation2 <- joined %>%
+  st_drop_geometry()%>%
+  dplyr::select(year6_obese_rate,
+                total_annual_income,
+                median_house_price_2018,
+                population_density
+  ) %>%
+  correlate() %>%
+  focus(-year6_obese_rate, mirror = TRUE) 
+
+rplot(Correlation2)
+
+
 #modelling
 Regressiondata<- joined%>%
   dplyr::select(year6_obese_rate, 
-                log_poverty_ahc_rate,
-                total_annual_income)
+                total_annual_income,
+                median_house_price_2018,
+                population_density)
+
+model0 <- Regressiondata %>%
+  lm(year6_obese_rate ~
+       population_density,
+     data=.)
+glance(model0)
 
 model1 <- Regressiondata %>%
   lm(year6_obese_rate ~
-       log_poverty_ahc_rate,
+       median_house_price_2018,
      data=.)
 glance(model1)
 
@@ -243,7 +333,9 @@ glance(model2)
 
 model3 <- Regressiondata %>%
   lm(year6_obese_rate ~
-       total_annual_income + log_poverty_ahc_rate,
+       total_annual_income +
+       median_house_price_2018 + 
+       population_density,
      data=.)
 glance(model3)
 
@@ -317,3 +409,41 @@ Nearest_neighbour <- joined_r %>%
 
 Queen
 Nearest_neighbour
+
+#GWR
+st_crs(joined_f) = 27700
+joined_f_sp <- joined_f %>%
+  as(., "Spatial")
+st_crs(coordsW) = 27700
+coordsWsp <- coordsW %>%
+  as(., "Spatial")
+coordsWsp
+
+GWRbandwidth <- gwr.sel(year6_obese_rate ~ total_annual_income +
+                          median_house_price_2018 + 
+                          population_density,
+                        data=joined_f_sp,
+                        adapt=T)
+
+gwr.model = gwr(year6_obese_rate ~ total_annual_income +
+                  median_house_price_2018 + 
+                  population_density,
+                data = joined_f_sp, 
+                coords=coordsWsp, 
+                adapt=GWRbandwidth, 
+                hatmatrix=TRUE, 
+                se.fit=TRUE)
+gwr.model
+
+results <- as.data.frame(gwr.model$SDF)
+names(results)
+
+joined2 <- joined_f %>%
+  mutate(coefannualin = results$total_annual_income,
+         coefmedianhou = results$median_house_price_2018,
+         coefpopuladen = results$population_density)
+
+tm_shape(joined2) +
+  tm_polygons(col = "coefpopuladen", 
+              palette = "RdBu", 
+              alpha = 0.5)
