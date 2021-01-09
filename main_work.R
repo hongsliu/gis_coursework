@@ -103,11 +103,29 @@ joined <- joined %>%
   mutate(population_density = as.numeric(population/(area/1000000)))%>%
   mutate(pr_higher_education = level_4_qualifications_and_above/population)
 
-qtm(joined, fill='pr_higher_education')
-
 joined_f <- joined %>%
   drop_na()
 joined_na <- joined[is.na(joined$year6_obese_rate),]
+
+tmap_mode("plot")
+tm <- tm_shape(joined) +
+  tm_polygons("year6_obese_rate",
+              palette='YlOrBr',
+              colorNA = 'gray30',
+              midpoint=NA,
+              textNA = "No data",
+              title="Percent")+
+  tm_legend(legend.position = c('left','bottom'))+
+  tm_layout(frame=TRUE,
+            title.position=c('center','top'))+
+  tm_scale_bar(width = 0.15, color.dark = 'gray60',
+               position = c('right', 'bottom')) +
+  tm_compass(color.dark = 'gray60', text.color ='gray60',
+             position = c('right','top'))
+tm
+
+tmap_save(tm, filename = "Obesity Rate.png")
+
 
 #spatial autocorrelation
 coordsW <- joined_f%>%
@@ -164,18 +182,29 @@ joined <- joined_f %>%
   left_join(joined,.,by = 'msoa11cd' )
 
 breaks1<-c(-1000,-2.58,-1.96,-1.65,1.65,1.96,2.58,1000)
-MoranColours<- rev(brewer.pal(8, "RdGy"))
+MoranColours<- rev(brewer.pal(8, "RdBu"))
 
-tmap_mode("view")
-tm_shape(joined) +
+
+
+tm1 <- tm_shape(joined) +
   tm_polygons("obese_rate_Iz",
               style="fixed",
               breaks=breaks1,
               palette=MoranColours,
+              colorNA = 'gray30',
               midpoint=NA,
-              colorNA = "white", 
               textNA = "No data",
-              title="Local Moran's I, year6_obese_rate in GM")
+              title="Local Moran's I")+
+  tm_legend(legend.position = c('left','bottom'))+
+  tm_layout(frame=TRUE,
+            title.position=c('center','top'))+
+  tm_scale_bar(width = 0.15, color.dark = 'gray60',
+               position = c('right', 'bottom')) +
+  tm_compass(color.dark = 'gray60', text.color ='gray60',
+             position = c('right','top'))
+tm1
+
+tmap_save(tm1, filename = "Local Moran's I.png")
 
 Gi_MSOA_local_obese <- joined_f %>%
   pull(year6_obese_rate) %>%
@@ -194,16 +223,27 @@ joined <- joined_f %>%
   st_drop_geometry()%>%
   left_join(joined,.,by = 'msoa11cd' )
 
-tm_shape(joined) +
+tm2 <- tm_shape(joined) +
   tm_polygons("obese_rate_G",
               style="fixed",
               breaks=breaks1,
               palette=GIColours,
-              colorNA = "white", 
-              textNA = "No data",
+              colorNA = 'gray30',
               midpoint=NA,
-              title="Gi*, year6_obese_rate in GM")
+              textNA = "No data",
+              title="Gi*")+
+  tm_legend(legend.position = c('left','bottom'))+
+  tm_layout(frame=TRUE,
+            title.position=c('center','top'))+
+  tm_scale_bar(width = 0.15, color.dark = 'gray60',
+               position = c('right', 'bottom')) +
+  tm_compass(color.dark = 'gray60', text.color ='gray60',
+             position = c('right','top'))
 
+
+tm2
+
+tmap_save(tm2, filename = "Gi.png")
 
 #check variables for regression
 ggplot(joined, aes(x=year6_obese_rate)) + 
@@ -278,6 +318,19 @@ q5 <- qplot(x = `pr_higher_education`,
 
 q5 + stat_smooth(method="lm", se=FALSE, size=1)
 
+
+ggplot(joined, aes(x=total_annual_income, y= year6_obese_rate)) +
+  geom_point(shape=1)+
+  geom_smooth(method=lm,se=FALSE)+
+  labs(y= "obesity rate", x = "total annual household income")
+ggsave('plot.png')
+
+pairs(~year6_obese_rate+
+        total_annual_income+
+        population_density+
+        median_house_price_2018
+        ,data=joined,
+      main="Simple Scatterplot Matrix")
 
 Correlation <- joined %>%
   st_drop_geometry()%>%
@@ -366,15 +419,28 @@ model_data3%>%
 par(mfrow=c(2,2))
 plot(model3)
 
+
 #autocorrelation of residuals
 DW <- durbinWatsonTest(model3)
 tidy(DW)
 
-tmap_mode("view")
-
-tm_shape(joined) +
+tm3 <- tm_shape(joined) +
   tm_polygons("model3resids",
-              palette = "RdYlBu")
+              palette='RdYlBu',
+              colorNA = 'gray30',
+              midpoint=NA,
+              textNA = "No data",
+              title="Residuals")+
+  tm_legend(legend.position = c('left','bottom'))+
+  tm_layout(frame=TRUE,
+            title.position=c('center','top'))+
+  tm_scale_bar(width = 0.15, color.dark = 'gray60',
+               position = c('right', 'bottom')) +
+  tm_compass(color.dark = 'gray60', text.color ='gray60',
+             position = c('right','top'))
+tm3
+tmap_save(tm3, filename = "Residuals.png")
+
 
 joined_r <- joined%>%
   drop_na()
@@ -410,6 +476,7 @@ Nearest_neighbour <- joined_r %>%
 Queen
 Nearest_neighbour
 
+
 #GWR
 st_crs(joined_f) = 27700
 joined_f_sp <- joined_f %>%
@@ -444,6 +511,24 @@ joined2 <- joined_f %>%
          coefpopuladen = results$population_density)
 
 tm_shape(joined2) +
-  tm_polygons(col = "coefpopuladen", 
+  tm_polygons(col = "coefannualin", 
               palette = "RdBu", 
               alpha = 0.5)
+
+tm4 <- tm_shape(joined2) +
+  tm_polygons("coefannualin",
+              palette='RdBu',
+              colorNA = 'gray30',
+              midpoint=NA,
+              textNA = "No data",
+              title="Coefficient")+
+  tm_legend(legend.position = c('left','bottom'))+
+  tm_layout(frame=TRUE,
+            title.position=c('center','top'))+
+  tm_scale_bar(width = 0.15, color.dark = 'gray60',
+               position = c('right', 'bottom')) +
+  tm_compass(color.dark = 'gray60', text.color ='gray60',
+             position = c('right','top'))
+tm4
+
+tmap_save(tm4, filename = "GWR_Annual_Income.png")
