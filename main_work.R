@@ -101,11 +101,23 @@ rm(Obesity, Poverty, Income, Active_life, Population, Education, Houseprice)
 joined$area <- st_area(joined)
 joined <- joined %>%
   mutate(population_density = as.numeric(population/(area/1000000)))%>%
-  mutate(pr_higher_education = level_4_qualifications_and_above/population)
+  mutate(pr_higher_education = level_4_qualifications_and_above/population)%>%
+  mutate(total_annual_income = total_annual_income/1000)%>%
+  mutate(median_house_price_2018 = median_house_price_2018/1000)
 
 joined_f <- joined %>%
   drop_na()
 joined_na <- joined[is.na(joined$year6_obese_rate),]
+
+
+hi <- hist(joined$year6_obese_rate,
+     xlab="Obesity prevalence in year 6 children",
+     xlim=c(5,35))
+
+ggplot(joined, aes(x=year6_obese_rate)) +
+  geom_histogram(color="black", fill="white")+
+  labs(x = "Obesity prevalence in year 6 children")
+ggsave('Hist.png')
 
 tmap_mode("plot")
 tm <- tm_shape(joined) +
@@ -390,7 +402,7 @@ model3 <- Regressiondata %>%
        median_house_price_2018 + 
        population_density,
      data=.)
-glance(model3)
+summary(model3)
 
 Regressiondata <- Regressiondata %>% drop_na()
 
