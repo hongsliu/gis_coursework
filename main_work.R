@@ -12,6 +12,7 @@ library(corrr)
 library(regclass)
 library(car)
 library(spgwr)
+library(spatialreg)
 
 #data loading and cleaning
 GM <- st_read(here::here("GM", "GM.shp")) %>%
@@ -334,7 +335,7 @@ q5 + stat_smooth(method="lm", se=FALSE, size=1)
 ggplot(joined, aes(x=total_annual_income, y= year6_obese_rate)) +
   geom_point(shape=1)+
   geom_smooth(method=lm,se=FALSE)+
-  labs(y= "obesity rate", x = "total annual household income")
+  labs(y= "obesity rate", x = "average total annual household income")
 ggsave('plot.png')
 
 pairs(~year6_obese_rate+
@@ -488,6 +489,37 @@ Nearest_neighbour <- joined_r %>%
 Queen
 Nearest_neighbour
 
+#The spatial lag model
+slag_dv_model3_queen <- lagsarlm( year6_obese_rate~ total_annual_income + 
+                                   median_house_price_2018+
+                                    population_density, 
+                                 data = joined_r, 
+                                 nb2listw(MSOA_nb, style="C"), 
+                                 method = "eigen")
+tidy(slag_dv_model3_queen)
+glance(slag_dv_model3_queen)
+t <- summary(slag_dv_model3_queen)
+
+slag_dv_model3_knn4 <- lagsarlm(year6_obese_rate~ total_annual_income + 
+                                  median_house_price_2018+
+                                  population_density, 
+                                data = joined_r, 
+                                nb2listw(MSOA_knn, 
+                                         style="C"), 
+                                method = "eigen")
+tidy(slag_dv_model3_knn4)
+
+joined_r <- joined_r %>%
+  mutate(slag_dv_model3_knn_resids = residuals(slag_dv_model3_knn4))
+
+KNN4Moran <- joined_r %>%
+  st_drop_geometry()%>%
+  dplyr::select(slag_dv_model3_knn_resids)%>%
+  pull()%>%
+  moran.test(., MSOA.knn_4_weight)%>%
+  tidy()
+
+KNN4Moran
 
 #GWR
 st_crs(joined_f) = 27700
